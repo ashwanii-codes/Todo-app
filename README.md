@@ -27,9 +27,9 @@ todo-app/
 | 4. Mark Task as Completed   | Click the circle checkbox               |
 | (not in original)            | ✏️ Edit button — lets you rename a task |
 
-Tasks are stored in memory in a Python list (`tasks = []`), exactly like your
-original script — so restarting the server clears them. There's no database,
-by design, to keep this simple to run.
+Tasks are stored in a small SQLite database (`todo.db`), created automatically
+the first time you run the app. Unlike the original in-memory list, tasks now
+survive server restarts (including a free-tier host spinning down and back up).
 
 ## 1. Install dependencies
 
@@ -67,8 +67,8 @@ That's it — add, complete, edit, and delete tasks right from the page.
 
 ## Notes
 
-- Data resets whenever you restart `app.py` (in-memory only, like the
-  original script). If you want tasks to persist across restarts later,
-  the natural next step is swapping the `tasks` list for a small SQLite
-  database — happy to add that if you want it.
+- Tasks are saved in `todo.db` (SQLite) in this same folder, so they persist
+  across restarts. Delete that file if you ever want to start fresh.
 - To stop the server, press `Ctrl+C` in the terminal.
+- `Procfile` and `gunicorn` in requirements.txt are there for deploying to
+  Render or similar hosts (not needed for running locally).

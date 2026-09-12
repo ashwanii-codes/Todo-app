@@ -1,40 +1,63 @@
 """
-To-Do List web application (Flask backend).
+To-Do List web application (Flask backend), backed by SQLite.
 
-This mirrors the logic of the original console script:
-  - tasks are stored in memory in a list
+Route mapping to the original console script:
   - "Add Task"      -> POST   /api/tasks
   - "View Task"     -> GET    /api/tasks
   - "Remove Task"   -> DELETE /api/tasks/<id>
-  - "Mark Complete" -> POST   /api/tasks/<id>/toggle   (toggles, like the
-                                                          original's "already
-                                                          completed" check)
+  - "Mark Complete" -> POST   /api/tasks/<id>/toggle
   - "Edit Task" (new, not in the console version) -> PUT /api/tasks/<id>
 
-Instead of appending a "✓" to the string (which was fine for a terminal
-printout but awkward for a UI), each task is now a small dict:
-    {"id": int, "text": str, "completed": bool}
-The *behavior* is identical to the original: a task starts incomplete,
-can be marked completed, toggled back, edited, or removed. Data lives only
-in memory, exactly like the original `tasks = []` list, so it resets when
-the server restarts.
+Tasks are now stored in a SQLite database file (todo.db) instead of an
+in-memory list, so they persist across restarts and server sleeps
+(important on free hosting tiers like Render, which spin the app down
+after inactivity). The database file is created automatically the first
+time the app runs.
 """
 
-from flask import Flask, jsonify, request, render_template
+import sqlite3
+from pathlib import Path
+
+from flask import Flask, jsonify, request, render_template, g
 
 app = Flask(__name__)
 
-# In-memory storage - equivalent to the original `tasks = []`
-tasks = []
-next_id = 1  # simple auto-incrementing id, since a plain list has no stable id
+DB_PATH = Path(__file__).parent / "todo.db"
 
 
-def find_task(task_id):
-    """Return the task dict with this id, or None."""
-    for t in tasks:
-        if t["id"] == task_id:
-            return t
-    return None
+def get_db():
+    """Open (or reuse) a SQLite connection for the current request."""
+    if "db" not in g:
+        g.db = sqlite3.connect(DB_PATH)
+        g.db.row_factory = sqlite3.Row
+    return g.db
+
+
+@app.teardown_appcontext
+def close_db(exception=None):
+    db = g.pop("db", None)
+    if db is not None:
+        db.close()
+
+
+def init_db():
+    """Create the tasks table if it doesn't exist yet."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            text TEXT NOT NULL,
+            completed INTEGER NOT NULL DEFAULT 0
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
+
+
+def row_to_task(row):
+    return {"id": row["id"], "text": row["text"], "completed": bool(row["completed"])}
 
 
 @app.route("/")
@@ -45,39 +68,44 @@ def index():
 @app.route("/api/tasks", methods=["GET"])
 def get_tasks():
     """Equivalent of choice '2' (View Task)."""
-    return jsonify(tasks)
+    db = get_db()
+    rows = db.execute("SELECT * FROM tasks ORDER BY id").fetchall()
+    return jsonify([row_to_task(r) for r in rows])
 
 
 @app.route("/api/tasks", methods=["POST"])
 def add_task():
     """Equivalent of choice '1' (Add Task)."""
-    global next_id
     data = request.get_json(silent=True) or {}
     text = (data.get("text") or "").strip()
 
     if not text:
         return jsonify({"error": "Task text cannot be empty."}), 400
 
-    task = {"id": next_id, "text": text, "completed": False}
-    tasks.append(task)
-    next_id += 1
-    return jsonify(task), 201
+    db = get_db()
+    cur = db.execute("INSERT INTO tasks (text, completed) VALUES (?, 0)", (text,))
+    db.commit()
+    row = db.execute("SELECT * FROM tasks WHERE id = ?", (cur.lastrowid,)).fetchone()
+    return jsonify(row_to_task(row)), 201
 
 
 @app.route("/api/tasks/<int:task_id>", methods=["PUT"])
 def edit_task(task_id):
     """Edit a task's text (extension of the original CLI)."""
-    task = find_task(task_id)
-    if task is None:
-        return jsonify({"error": "Task not found."}), 404
-
     data = request.get_json(silent=True) or {}
     text = (data.get("text") or "").strip()
     if not text:
         return jsonify({"error": "Task text cannot be empty."}), 400
 
-    task["text"] = text
-    return jsonify(task)
+    db = get_db()
+    row = db.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    if row is None:
+        return jsonify({"error": "Task not found."}), 404
+
+    db.execute("UPDATE tasks SET text = ? WHERE id = ?", (text, task_id))
+    db.commit()
+    row = db.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    return jsonify(row_to_task(row))
 
 
 @app.route("/api/tasks/<int:task_id>/toggle", methods=["POST"])
@@ -85,24 +113,32 @@ def toggle_task(task_id):
     """Equivalent of choice '4' (Mark Task as Completed) - toggles the
     completed flag, matching the original's check for whether it was
     already marked done."""
-    task = find_task(task_id)
-    if task is None:
+    db = get_db()
+    row = db.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    if row is None:
         return jsonify({"error": "Task not found."}), 404
 
-    task["completed"] = not task["completed"]
-    return jsonify(task)
+    new_value = 0 if row["completed"] else 1
+    db.execute("UPDATE tasks SET completed = ? WHERE id = ?", (new_value, task_id))
+    db.commit()
+    row = db.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    return jsonify(row_to_task(row))
 
 
 @app.route("/api/tasks/<int:task_id>", methods=["DELETE"])
 def delete_task(task_id):
     """Equivalent of choice '3' (Remove Task)."""
-    task = find_task(task_id)
-    if task is None:
+    db = get_db()
+    row = db.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    if row is None:
         return jsonify({"error": "Task not found."}), 404
 
-    tasks.remove(task)
-    return jsonify({"message": "Removed", "task": task})
+    db.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+    db.commit()
+    return jsonify({"message": "Removed", "task": row_to_task(row)})
 
+
+init_db()
 
 if __name__ == "__main__":
     app.run(debug=True)
