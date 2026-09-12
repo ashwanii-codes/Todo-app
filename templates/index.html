@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>To-Do List</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<div class="app">
+  <header class="app-header">
+    <h1>📝 My To-Do List</h1>
+    <p class="subtitle">Stay organized, one task at a time.</p>
+  </header>
+
+  <form id="add-task-form" class="add-task-form">
+    <input
+      type="text"
+      id="task-input"
+      placeholder="What do you need to do?"
+      autocomplete="off"
+      maxlength="200"
+      required
+    />
+    <button type="submit" class="btn btn-primary">
+      <span class="icon">＋</span> Add Task
+    </button>
+  </form>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="filter-bar">
+    <button class="filter-btn active" data-filter="all">All</button>
+    <button class="filter-btn" data-filter="active">Active</button>
+    <button class="filter-btn" data-filter="completed">Completed</button>
+  </div>
+
+  <ul id="task-list" class="task-list"></ul>
+
+  <p id="empty-state" class="empty-state" hidden>
+    No tasks yet — add your first one above! 🎉
+  </p>
+</div>
+
+<!-- Edit modal -->
+<div id="edit-modal" class="modal-overlay" hidden>
+  <div class="modal">
+    <h2>Edit Task</h2>
+    <input type="text" id="edit-input" maxlength="200" />
+    <div class="modal-actions">
+      <button id="edit-cancel" class="btn btn-secondary">Cancel</button>
+      <button id="edit-save" class="btn btn-primary">Save</button>
+    </div>
+  </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/script.js') }}"></script>
+</body>
+</html>
